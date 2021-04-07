@@ -567,6 +567,30 @@ type CollectionPage struct {
 	CanInvite      bool
 }
 
+type TagCollectionPage struct {
+	CollectionPage
+	Tag string
+}
+
+func (tcp TagCollectionPage) PrevPageURL(prefix string, n int, tl bool) string {
+	u := fmt.Sprintf("/tag:%s", tcp.Tag)
+	if n > 2 {
+		u += fmt.Sprintf("/page/%d", n-1)
+	}
+	if tl {
+		return u
+	}
+	return "/" + prefix + tcp.Alias + u
+
+}
+
+func (tcp TagCollectionPage) NextPageURL(prefix string, n int, tl bool) string {
+	if tl {
+		return fmt.Sprintf("/tag:%s/page/%d", tcp.Tag, n+1)
+	}
+	return fmt.Sprintf("/%s%s/tag:%s/page/%d", prefix, tcp.Alias, tcp.Tag, n+1)
+}
+
 func NewCollectionObj(c *Collection) *CollectionObj {
 	return &CollectionObj{
 		Collection: *c,
@@ -906,16 +930,22 @@ func handleViewCollectionTag(app *App, w http.ResponseWriter, r *http.Request) e
 
 	coll := newDisplayCollection(c, cr, page)
 
+	coll.TotalPages = int(math.Ceil(float64(coll.TotalPosts) / float64(coll.Format.PostsPerPage())))
+	if coll.TotalPages > 0 && page > coll.TotalPages {
+		redirURL := fmt.Sprintf("/page/%d", coll.TotalPages)
+		if !app.cfg.App.SingleUser {
+			redirURL = fmt.Sprintf("/%s%s%s", cr.prefix, coll.Alias, redirURL)
+		}
+		return impart.HTTPError{http.StatusFound, redirURL}
+	}
+
 	coll.Posts, _ = app.db.GetPostsTagged(app.cfg, c, tag, page, cr.isCollOwner)
 	if coll.Posts != nil && len(*coll.Posts) == 0 {
 		return ErrCollectionPageNotFound
 	}
 
 	// Serve collection
-	displayPage := struct {
-		CollectionPage
-		Tag string
-	}{
+	displayPage := TagCollectionPage{
 		CollectionPage: CollectionPage{
 			DisplayCollection: coll,
 			StaticPage:        pageForReq(app, r),
